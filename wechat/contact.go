@@ -5,11 +5,11 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"github.com/sirupsen/logrus"
 	"io/ioutil"
 	"net/url"
 	"strings"
 	"time"
-	"github.com/sirupsen/logrus"
 )
 
 const (

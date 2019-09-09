@@ -2,6 +2,7 @@ package main
 
 import (
 	"github.com/ghaoo/novel/wechat"
+	"github.com/sirupsen/logrus"
 )
 
 const BOOK_PATH = `E:\data\books`
@@ -18,8 +19,16 @@ func main() {
 	bot.Handle(`/msg`, func(evt wechat.Event) {
 		data := evt.Data.(wechat.EventMsgData)
 		go assistant.handle(data)
+
+		go GetBook(bot, data)
+
 	})
 
+	bot.AddTiming(`18:00`)
+	bot.Handle(`/timing/18:00`, func(arg2 wechat.Event) {
+		go FetchCatalog()
+		bot.SendTextMsg(`9:00 了`, `filehelper`)
+	})
 
 	/*bot.Handle(`/msg/solo`, func(evt wechat.Event) {
 		data := evt.Data.(wechat.EventMsgData)
@@ -68,4 +77,10 @@ func main() {
 	})*/
 
 	bot.Go()
+}
+
+func init() {
+	logrus.SetFormatter(&logrus.TextFormatter{
+		ForceColors: true,
+	})
 }

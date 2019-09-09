@@ -5,7 +5,6 @@ import (
 	"encoding/json"
 	"fmt"
 	"github.com/PuerkitoBio/goquery"
-	"github.com/ghaoo/rbootx"
 	"github.com/ghaoo/rbootx/tools"
 	"github.com/gocolly/colly"
 	"github.com/gocolly/colly/extensions"
@@ -39,8 +38,6 @@ type Chapter struct {
 
 func GetCatalog(url string) Catalog {
 	cl := Catalog{}
-
-	logrus.Warn(url)
 
 	c := colly.NewCollector(
 		colly.AllowedDomains("www.bqg5200.com"),
@@ -150,7 +147,7 @@ func GetCatalog(url string) Catalog {
 	return cl
 }
 
-func FetchCatalog(bot *rbootx.Robot) []rbootx.Message {
+func FetchCatalog() {
 
 	cl := Catalog{}
 
@@ -270,6 +267,4 @@ func FetchCatalog(bot *rbootx.Robot) []rbootx.Message {
 	}
 
 	c.Wait()
-
-	return nil
 }

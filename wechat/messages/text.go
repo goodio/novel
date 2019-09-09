@@ -40,4 +40,3 @@ func NewTextMsg(text, to string) *TextMsg {
 func (msg *TextMsg) String() string {
 	return msg.content
 }
-

@@ -16,9 +16,9 @@ import (
 	"strings"
 	"time"
 
+	"github.com/ghaoo/novel/wechat/messages"
 	"github.com/h2non/filetype"
 	"github.com/h2non/filetype/types"
-	"github.com/ghaoo/novel/wechat/messages"
 )
 
 type uploadMediaResponse struct {
@@ -180,7 +180,6 @@ func (wechat *WeChat) UploadMedia(buf []byte, kind types.Type, info os.FileInfo,
 	}
 
 	for _, urlPath := range urls {
-
 		var req *http.Request
 		req, err = http.NewRequest(`POST`, urlPath, body)
 		if err != nil {

@@ -2,6 +2,7 @@ package wechat
 
 import (
 	"fmt"
+	"github.com/sirupsen/logrus"
 	"io/ioutil"
 	"net/http"
 	"net/url"
@@ -10,7 +11,6 @@ import (
 	"strconv"
 	"strings"
 	"time"
-	"github.com/sirupsen/logrus"
 )
 
 // Search is a helper to remove useless char

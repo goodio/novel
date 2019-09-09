@@ -2,20 +2,20 @@
 package main
 
 import (
+	"github.com/ghaoo/novel/wechat"
 	"github.com/ghaoo/rbootx/adapter/wechat/sdk"
 	"github.com/sirupsen/logrus"
-	"github.com/ghaoo/novel/wechat"
 
 	"bytes"
 	"encoding/json"
 	"fmt"
 	"strconv"
-	"time"
 	"strings"
+	"time"
 )
 
 type assistant struct {
-	bot      *wechat.WeChat
+	bot *wechat.WeChat
 }
 
 func NewAssistant(bot *wechat.WeChat) *assistant {
@@ -60,8 +60,11 @@ func (a *assistant) handle(msg wechat.EventMsgData) {
 		if msg.AtMe {
 
 			if strings.Contains(msg.Content, `统计人数`) {
-				logrus.Info(msg.ToUserName)
-				a.chatRoomMember(msg.ToUserName)
+				mm, _ := a.chatRoomMember(msg.FromUserName)
+
+				logrus.Warnf("%v\n", mm)
+
+				a.bot.SendTextMsg(fmt.Sprintf("群内总人数 %d 人，其中男生 %d 人，女生 %d 人，未知性别 %d 人", mm["count"], mm["man"], mm["woman"], mm["none"]), msg.FromUserName)
 			}
 		}
 	}
@@ -92,7 +95,6 @@ func (a *assistant) delMember(groupUserName, memberUserName string) error {
 	return fmt.Errorf(`delete %s on %s failed`, memberUserName, groupUserName)
 }
 
-
 // 统计群里男生和女生数量
 func (a *assistant) chatRoomMember(room_name string) (map[string]int, error) {
 
@@ -106,9 +108,12 @@ func (a *assistant) chatRoomMember(room_name string) (map[string]int, error) {
 	man := 0
 	woman := 0
 	none := 0
+	count := 0
 	for _, v := range RoomContactList {
 
 		member := a.bot.ContactByUserName(v.UserName)
+
+		count++
 
 		if member.Sex == 1 {
 			man++
@@ -121,6 +126,7 @@ func (a *assistant) chatRoomMember(room_name string) (map[string]int, error) {
 	}
 
 	stats = map[string]int{
+		"count": count,
 		"woman": woman,
 		"man":   man,
 		"none":  none,

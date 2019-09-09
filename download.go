@@ -1,36 +1,41 @@
 package main
 
 import (
-	"github.com/ghaoo/rbootx"
-	"github.com/ghaoo/rbootx/tools"
+	"github.com/ghaoo/novel/wechat"
+	"github.com/go-gomail/gomail"
 	"github.com/gocolly/colly"
 	"github.com/gocolly/colly/extensions"
 	"github.com/sirupsen/logrus"
+	"golang.org/x/text/encoding/simplifiedchinese"
 
 	"bufio"
+	"bytes"
+	"crypto/tls"
+	"encoding/json"
 	"fmt"
 	"io"
+	"io/ioutil"
 	"net/http"
 	"os"
+	"path"
 	"path/filepath"
 	"regexp"
+	"sort"
 	"strings"
 	"time"
-	"io/ioutil"
-	"encoding/json"
 )
 
-var getreg = regexp.MustCompile(`#小说 (.+)`)
+var getreg = regexp.MustCompile(`^#(.+)#(\s(?:[a-z0-9_\.-]+)@(?:[\da-z\.-]+)\.(?:[a-z\.]{2,6})$)?`)
 
-func GetBook(bot *rbootx.Robot) []rbootx.Message {
+func GetBook(bot *wechat.WeChat, msg wechat.EventMsgData) {
 
-	var msg rbootx.Message
-
+	email := ""
 	book := ""
-	in := bot.Incoming()
-	if getreg.MatchString(in.Content) {
-		bs := getreg.FindStringSubmatch(in.Content)
+	if getreg.MatchString(msg.Content) {
+		bs := getreg.FindStringSubmatch(msg.Content)
+
 		book = bs[1]
+		email = bs[2]
 	}
 
 	if book != "" {
@@ -40,17 +45,11 @@ func GetBook(bot *rbootx.Robot) []rbootx.Message {
 
 			if os.IsNotExist(err) {
 				// 不存在
-				return []rbootx.Message{
-					{
-						Content: "没有找到 《" + book + "》 这本书",
-					},
-				}
+				bot.SendTextMsg("没有找到 《"+book+"》 这本书", msg.FromUserName)
 			}
 		} else {
 			// 存在
 			datafile := filepath.Join(fname, "data.json")
-
-			logrus.Warn(book)
 
 			cl := Catalog{}
 
@@ -64,31 +63,41 @@ func GetBook(bot *rbootx.Robot) []rbootx.Message {
 				logrus.Errorf("解析文件【%s】失败: %v", datafile, err)
 			}
 
-			cl = GetCatalog(fmt.Sprintf("https://www.bqg5200.com/xiaoshuo/%s/%d/", cl.SubID, cl.ID))
-
-			msg.Content = fmt.Sprintf("最新章节：%s", cl.LastChapter)
-			bot.Send(msg)
-
-			go fetchContent(&cl)
-
-			if err = fileMerge(fname); err != nil {
-				logrus.Error(err)
-			}
-
 			bookpath := filepath.Join(fname, book+".txt")
-			to := bot.Incoming().To
-			logrus.Warn(bookpath,"\n", to)
-			if err = bot.SendFile(bookpath, to); err != nil {
-				logrus.Error(err)
-			}
 
+			if _, err := os.Stat(bookpath); os.IsNotExist(err) {
+
+				bot.SendTextMsg("下载中，请等待几分钟...", msg.FromUserName)
+
+				//cl = GetCatalog(fmt.Sprintf("https://www.bqg5200.com/xiaoshuo/%s/%d/", cl.SubID, cl.ID))
+
+				//fetchContent(&cl)
+
+				if err = fileMerge(fname); err != nil {
+					logrus.Error(err)
+				}
+
+				if err = bot.SendFile(bookpath, msg.FromUserName); err != nil {
+					if email == "" {
+						bot.SendTextMsg("文件较大，需通过邮件发送，请在小说名后面加上邮箱...", msg.FromUserName)
+					} else {
+						sendmail(email, bookpath, book)
+						bot.SendTextMsg("文件较大，已通过邮件发送...", msg.FromUserName)
+					}
+
+				}
+
+			} else {
+				if email == "" {
+					bot.SendTextMsg("文件较大，需通过邮件发送，请在小说名后面加上邮箱...", msg.FromUserName)
+				} else {
+					sendmail(email, bookpath, book)
+					bot.SendTextMsg("文件较大，已通过邮件发送...", msg.FromUserName)
+				}
+			}
 		}
-	} else {
-		msg.Content = "别乱来..."
-		bot.Send(msg)
 	}
 
-	return nil
 }
 
 func fetchContent(cl *Catalog) {
@@ -121,11 +130,11 @@ func fetchContent(cl *Catalog) {
 
 		h, _ := e.DOM.Html()
 
-		html, _ := tools.DecodeGBK([]byte(h))
+		html, _ := DecodeGBK([]byte(h))
 
 		dom := e.DOM.SetHtml(string(html))
 
-		class_name := dom.Find("#header .readNav :nth-child(2)").Text()
+		//class_name := dom.Find("#header .readNav :nth-child(2)").Text()
 
 		book_name := dom.Find("#header .readNav :nth-child(3)").Text()
 
@@ -138,9 +147,9 @@ func fetchContent(cl *Catalog) {
 
 		content := "### " + title + "\n" + article + "\n\n"
 
-		fpath := filepath.Join(class_name, book_name, fname[1] + ".rbx")
+		fpath := filepath.Join(BOOK_PATH, book_name, fname[1]+".rbx")
 
-		err := tools.FileWrite(fpath, []byte(content))
+		err := write(fpath, []byte(content))
 
 		if err != nil {
 			logrus.Errorf("%v\n", err)
@@ -177,41 +186,104 @@ func fileMerge(root string) error {
 
 	bWriter.Write([]byte("## " + name + "\n\n\n"))
 
+	cpts := make([]string, 0)
+
 	filepath.Walk(root, func(path string, info os.FileInfo, err error) error {
 
 		if !info.IsDir() && strings.HasSuffix(path, ".rbx") {
-			//logrus.Printf("读取文件：%s \n", info.Name())
-
-			fp, err := os.Open(path)
-
-			if err != nil {
-				fmt.Printf("Can not open file %v", err)
-				return err
-			}
-
-			defer fp.Close()
-
-			bReader := bufio.NewReader(fp)
-
-			for {
-
-				buffer := make([]byte, 1024)
-				readCount, err := bReader.Read(buffer)
-				if err == io.EOF {
-					break
-				} else {
-					bWriter.Write(buffer[:readCount])
-				}
-
-			}
-
-			bWriter.Write([]byte("\n\n"))
+			cpts = append(cpts, path)
 		}
-
 		return err
 	})
+
+	sort.Slice(cpts, func(i, j int) bool {
+		return strings.TrimSuffix(cpts[i], ".rbx") < strings.TrimSuffix(cpts[j], ".rbx")
+	})
+
+	for _, v := range cpts {
+
+		fp, err := os.Open(v)
+
+		if err != nil {
+			fmt.Printf("Can not open file %v", err)
+			return err
+		}
+
+		defer fp.Close()
+
+		bReader := bufio.NewReader(fp)
+
+		for {
+
+			buffer := make([]byte, 1024)
+			readCount, err := bReader.Read(buffer)
+			if err == io.EOF {
+				break
+			} else {
+				bWriter.Write(buffer[:readCount])
+			}
+
+		}
+
+		bWriter.Write([]byte("\n\n"))
+
+	}
 
 	bWriter.Flush()
 
 	return nil
+}
+
+func sendmail(to, file, name string) {
+
+	m := gomail.NewMessage()
+	m.SetHeader("From", "guhao022@163.com")
+	m.SetHeader("To", to)
+	// m.SetAddressHeader("Cc", "dan@example.com", "Dan") //抄送
+	m.SetHeader("Subject", "小说: "+name) // 邮件标题
+	//m.SetBody("text/html", "电脑已开机: " + time.Now().Format("2006-01-02 15:04:05")) // 邮件内容
+	m.Attach(file) //附件
+
+	d := gomail.NewDialer("smtp.163.com", 25, "guhao022@163.com", "guhao_19890412")
+	d.TLSConfig = &tls.Config{InsecureSkipVerify: true}
+	if err := d.DialAndSend(m); err != nil {
+		panic(err)
+	}
+}
+
+func write(file string, content []byte) error {
+
+	fpath := path.Join(file)
+
+	basepath := path.Dir(fpath)
+	// 检测文件夹是否存在   若不存在  创建文件夹
+	if _, err := os.Stat(basepath); err != nil {
+
+		if os.IsNotExist(err) {
+
+			err = os.MkdirAll(basepath, os.ModePerm)
+
+			if err != nil {
+				return err
+			}
+		} else {
+			return err
+		}
+	}
+
+	f, err := os.OpenFile(fpath, os.O_CREATE|os.O_RDWR, os.ModePerm)
+
+	if err != nil {
+		return err
+	}
+
+	_, err = f.Write(content)
+
+	return err
+}
+
+func DecodeGBK(s []byte) ([]byte, error) {
+	reader := simplifiedchinese.GB18030.NewDecoder().Reader(bytes.NewReader(s))
+
+	return ioutil.ReadAll(reader)
 }

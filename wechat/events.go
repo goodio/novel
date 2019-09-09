@@ -2,12 +2,12 @@ package wechat
 
 import (
 	"fmt"
+	"github.com/sirupsen/logrus"
 	"path"
 	"strconv"
 	"strings"
 	"sync"
 	"time"
-	"github.com/sirupsen/logrus"
 )
 
 // Event ...
@@ -260,7 +260,7 @@ func (wechat *WeChat) AddTiming(hm string) {
 func (es *evtStream) emitContactChangeEvent(c Contact, ct int) {
 	data := EventContactData{
 		ChangeType: ct,
-		Contact:   c,
+		Contact:    c,
 	}
 	route := `/del`
 	if ct != Delete {

@@ -1,8 +1,8 @@
 package wechat
 
 import (
-	"github.com/skratchdot/open-golang/open"
 	"github.com/sirupsen/logrus"
+	"github.com/skratchdot/open-golang/open"
 )
 
 // implements UUIDProcessor

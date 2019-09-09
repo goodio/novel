@@ -5,8 +5,8 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"sync"
 	"github.com/sirupsen/logrus"
+	"sync"
 )
 
 type cache contactCache
