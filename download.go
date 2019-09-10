@@ -144,13 +144,13 @@ func fetchContent(cl *Catalog) {
 
 	extensions.RandomUserAgent(c)
 
-	var reg = regexp.MustCompile(`https:\/\/www.bqg5200.com\/xiaoshuo\/\d+\/\d+\/(\d+).html`)
+	var reg_bqg5200 = regexp.MustCompile(`https:\/\/www.bqg5200.com\/xiaoshuo\/\d+\/\d+\/(\d+).html`)
 
 	c.OnHTML("body.clo_bg", func(e *colly.HTMLElement) {
 
 		upath := e.Request.URL.String()
 
-		fname := reg.FindStringSubmatch(upath)
+		fname := reg_bqg5200.FindStringSubmatch(upath)
 
 		h, _ := e.DOM.Html()
 
@@ -186,9 +186,36 @@ func fetchContent(cl *Catalog) {
 		//logrus.Infof("Visiting %s", r.URL.String())
 	})
 
+	bookpath := filepath.Join(BOOK_PATH, cl.Name)
+
+	// 检查章节是否已下载，如果已经下载跳过
+	cpts, _ := filepath.Glob(bookpath + "\\*.rbx")
+
+	exist := make(map[int]int, 0)
+	for _, fi := range cpts {
+
+		if strings.HasPrefix(cl.Url, `https://www.bqg5200.com`) {
+			cpt := strings.TrimSuffix(filepath.Base(fi), ".rbx")
+
+			if cptid, err := strconv.Atoi(cpt); err == nil {
+				exist[cptid] = cl.ID
+			}
+
+			/*cpt_id := reg_bqg5200.FindStringSubmatch(cl.Url)[1]
+
+			if cpt == cpt_id {
+
+			}*/
+		}
+
+	}
+
 	for _, cpt := range cl.Chapters {
 
-		c.Visit(cpt.Url)
+		if id, ok := exist[cpt.ID]; !ok && id == cl.ID {
+			c.Visit(cpt.Url)
+		}
+
 	}
 
 	c.Wait()
@@ -198,6 +225,8 @@ func fetchContent(cl *Catalog) {
 }
 
 func fetchAllContent(root string) {
+
+	var reg_bqg5200 = regexp.MustCompile(`https:\/\/www.bqg5200.com\/xiaoshuo\/\d+\/\d+\/(\d+).html`)
 
 	files, _ := filepath.Glob(root + "\\*")
 
