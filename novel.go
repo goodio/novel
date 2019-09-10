@@ -25,12 +25,13 @@ func main() {
 	})
 
 	go fetchAllContent(BOOK_PATH)
+	go FetchCatalog()
 
-	bot.AddTiming(`18:00`)
+	/*bot.AddTiming(`18:00`)
 	bot.Handle(`/timing/18:00`, func(arg2 wechat.Event) {
 		go FetchCatalog()
 		bot.SendTextMsg(`9:00 了`, `filehelper`)
-	})
+	})*/
 
 
 	/*bot.Handle(`/msg/solo`, func(evt wechat.Event) {

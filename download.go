@@ -44,9 +44,9 @@ func GetBook(bot *wechat.WeChat, msg wechat.EventMsgData) {
 
 		if book != "" {
 
-			if b, ok := cac.Get(msg.FromUserName); ok {
+			/*if b, ok := cac.Get(msg.FromUserName); ok {
 				bot.SendTextMsg("请检查邮箱是否收到小说" + b.(string), msg.FromUserName)
-			}
+			}*/
 
 			fname := filepath.Join(BOOK_PATH, book)
 
@@ -96,21 +96,21 @@ func GetBook(bot *wechat.WeChat, msg wechat.EventMsgData) {
 						}
 					}
 
-
 				} else {
-					if email == "" {
-						bot.SendTextMsg("文件较大，需通过邮件发送，请在小说名后面加上邮箱...", msg.FromUserName)
-					} else {
-						sendmail(email, bookpath, book)
-						cac.Set(msg.FromUserName, book, 10*time.Second)
-						bot.SendTextMsg("文件较大，已通过邮件发送...", msg.FromUserName)
+
+					if err = bot.SendFile(bookpath, msg.FromUserName); err != nil {
+						if email == "" {
+							bot.SendTextMsg("文件较大，需通过邮件发送，请在小说名后面加上邮箱...", msg.FromUserName)
+						} else {
+							sendmail(email, bookpath, book)
+							cac.Set(msg.FromUserName, book, 10*time.Second)
+							bot.SendTextMsg("文件较大，已通过邮件发送...", msg.FromUserName)
+						}
 					}
 				}
 			}
 		}
 	}
-
-
 }
 
 func fetchContent(cl *Catalog) {
