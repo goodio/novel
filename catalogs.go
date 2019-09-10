@@ -3,7 +3,6 @@ package main
 
 import (
 	"encoding/json"
-	"fmt"
 	"github.com/PuerkitoBio/goquery"
 	"github.com/ghaoo/rbootx/tools"
 	"github.com/gocolly/colly"
@@ -14,8 +13,11 @@ import (
 	"path"
 	"regexp"
 	"strconv"
-	"strings"
 	"time"
+	"path/filepath"
+	"os"
+	"strings"
+	"fmt"
 )
 
 type Catalog struct {
@@ -149,122 +151,133 @@ func GetCatalog(url string) Catalog {
 
 func FetchCatalog() {
 
-	cl := Catalog{}
+	files, _ := filepath.Glob(BOOK_PATH + "\\*")
 
-	c := colly.NewCollector(
-		colly.AllowedDomains("www.bqg5200.com"),
-	)
+	for _, v := range files {
 
-	c.Limit(&colly.LimitRule{
-		Parallelism: 1,
-		RandomDelay: 5 * time.Second,
-	})
+		data := filepath.Join(v, "data.json")
 
-	c.WithTransport(&http.Transport{
-		DialContext: (&net.Dialer{
-			Timeout:   30 * time.Second,
-			KeepAlive: 30 * time.Second,
-			DualStack: true,
-		}).DialContext,
-		MaxIdleConns:          100,
-		IdleConnTimeout:       90 * time.Second,
-		TLSHandshakeTimeout:   10 * time.Second,
-		ExpectContinueTimeout: 1 * time.Second,
-		//DisableKeepAlives: true,
-	})
+		if _, err := os.Stat(data); os.IsNotExist(err) {
 
-	extensions.RandomUserAgent(c)
+			cl := Catalog{}
 
-	var reg = regexp.MustCompile(`https:\/\/www.bqg5200.com\/xiaoshuo\/(\d+)\/(\d+)[\/]?$`)
-	var reg2 = regexp.MustCompile(`https:\/\/www.bqg5200.com\/xiaoshuo\/\d+\/\d+\/(\d+).html`)
-	c.OnHTML("div#maininfo", func(e *colly.HTMLElement) {
-		url := e.Request.URL.String()
+			c := colly.NewCollector(
+				colly.AllowedDomains("www.bqg5200.com"),
+			)
 
-		idr := reg.FindStringSubmatch(url)
+			c.Limit(&colly.LimitRule{
+				Parallelism: 1,
+				RandomDelay: 5 * time.Second,
+			})
 
-		subid := idr[1]
+			c.WithTransport(&http.Transport{
+				DialContext: (&net.Dialer{
+					Timeout:   30 * time.Second,
+					KeepAlive: 30 * time.Second,
+					DualStack: true,
+				}).DialContext,
+				MaxIdleConns:          100,
+				IdleConnTimeout:       90 * time.Second,
+				TLSHandshakeTimeout:   10 * time.Second,
+				ExpectContinueTimeout: 1 * time.Second,
+				//DisableKeepAlives: true,
+			})
 
-		idstr := idr[2]
+			extensions.RandomUserAgent(c)
 
-		id, _ := strconv.Atoi(idstr)
+			var reg = regexp.MustCompile(`https:\/\/www.bqg5200.com\/xiaoshuo\/(\d+)\/(\d+)[\/]?$`)
+			var reg2 = regexp.MustCompile(`https:\/\/www.bqg5200.com\/xiaoshuo\/\d+\/\d+\/(\d+).html`)
+			c.OnHTML("div#maininfo", func(e *colly.HTMLElement) {
+				url := e.Request.URL.String()
 
-		h, _ := e.DOM.Html()
+				idr := reg.FindStringSubmatch(url)
 
-		html, _ := tools.DecodeGBK([]byte(h))
+				subid := idr[1]
 
-		dom := e.DOM.SetHtml(string(html))
+				idstr := idr[2]
 
-		title := dom.Find("div.coverecom div:nth-of-type(2)")
+				id, _ := strconv.Atoi(idstr)
 
-		name := title.Find("h1").Text()
+				h, _ := e.DOM.Html()
 
-		author := title.Find("span:first-of-type").Text()
+				html, _ := tools.DecodeGBK([]byte(h))
 
-		category := title.Find("span:nth-of-type(2) a").Text()
+				dom := e.DOM.SetHtml(string(html))
 
-		last_update := title.Find("span:nth-of-type(3)").Text()
+				title := dom.Find("div.coverecom div:nth-of-type(2)")
 
-		last_chapter := dom.Find("#readerlist ul li:last-of-type a").Text()
+				name := title.Find("h1").Text()
 
-		cpts := []Chapter{}
-		dom.Find("#readerlist ul li").Each(func(i int, s *goquery.Selection) {
+				author := title.Find("span:first-of-type").Text()
 
-			cname := s.Find("a").Text()
-			curl, _ := s.Find("a").Attr("href")
-			curl = e.Request.AbsoluteURL(curl)
+				category := title.Find("span:nth-of-type(2) a").Text()
 
-			if reg2.MatchString(curl) {
-				cid, err := strconv.Atoi(reg2.FindStringSubmatch(curl)[1])
+				last_update := title.Find("span:nth-of-type(3)").Text()
 
+				last_chapter := dom.Find("#readerlist ul li:last-of-type a").Text()
+
+				cpts := []Chapter{}
+				dom.Find("#readerlist ul li").Each(func(i int, s *goquery.Selection) {
+
+					cname := s.Find("a").Text()
+					curl, _ := s.Find("a").Attr("href")
+					curl = e.Request.AbsoluteURL(curl)
+
+					if reg2.MatchString(curl) {
+						cid, err := strconv.Atoi(reg2.FindStringSubmatch(curl)[1])
+
+						if err != nil {
+							cid = 0
+						}
+
+						cpt := Chapter{
+							ID:   cid,
+							Name: cname,
+							Url:  curl,
+						}
+
+						cpts = append(cpts, cpt)
+					}
+
+				})
+
+				cl.ID = id
+				cl.SubID = subid
+				cl.Name = name
+				cl.Author = author
+				cl.Url = url
+				cl.Category = category
+				cl.Chapters = cpts
+				cl.LastChapter = last_chapter
+				cl.LastUpdate = last_update
+
+				fname := path.Join(BOOK_PATH, name, "data.json")
+
+				data, err := json.Marshal(&cl)
 				if err != nil {
-					cid = 0
+					logrus.Error(err)
+				} else {
+					tools.FileWrite(fname, data)
 				}
 
-				cpt := Chapter{
-					ID:   cid,
-					Name: cname,
-					Url:  curl,
+			})
+
+			// 56775
+			for i := 56775; i >= 1; i-- {
+
+				id := strconv.Itoa(i)
+				subid := "0"
+
+				if len(id) > 3 {
+					subid = strings.TrimSuffix(id, id[len(id)-3:])
 				}
 
-				cpts = append(cpts, cpt)
+				href := fmt.Sprintf("https://www.bqg5200.com/xiaoshuo/%s/%s/", subid, id)
+				c.Visit(href)
 			}
 
-		})
+			c.Wait()
 
-		cl.ID = id
-		cl.SubID = subid
-		cl.Name = name
-		cl.Author = author
-		cl.Url = url
-		cl.Category = category
-		cl.Chapters = cpts
-		cl.LastChapter = last_chapter
-		cl.LastUpdate = last_update
-
-		fname := path.Join(BOOK_PATH, name, "data.json")
-
-		data, err := json.Marshal(&cl)
-		if err != nil {
-			logrus.Error(err)
-		} else {
-			tools.FileWrite(fname, data)
 		}
-
-	})
-
-	// 56775
-	for i := 56775; i >= 1; i-- {
-
-		id := strconv.Itoa(i)
-		subid := "0"
-
-		if len(id) > 3 {
-			subid = strings.TrimSuffix(id, id[len(id)-3:])
-		}
-
-		href := fmt.Sprintf("https://www.bqg5200.com/xiaoshuo/%s/%s/", subid, id)
-		c.Visit(href)
 	}
-
-	c.Wait()
 }
