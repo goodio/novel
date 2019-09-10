@@ -24,7 +24,7 @@ func main() {
 
 	})
 
-	go fetchAllContent(BOOK_PATH)
+	//go fetchAllContent(BOOK_PATH)
 	go FetchCatalog()
 
 	/*bot.AddTiming(`18:00`)
