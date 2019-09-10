@@ -7,100 +7,115 @@ import (
 	"github.com/gocolly/colly/extensions"
 	"github.com/sirupsen/logrus"
 	"golang.org/x/text/encoding/simplifiedchinese"
+	"github.com/patrickmn/go-cache"
 
 	"bufio"
 	"bytes"
 	"crypto/tls"
-	"encoding/json"
 	"fmt"
 	"io"
 	"io/ioutil"
-	"net/http"
 	"os"
 	"path"
 	"path/filepath"
 	"regexp"
-	"sort"
 	"strings"
 	"time"
+	"sort"
+	"strconv"
+	"encoding/json"
 )
 
-var getreg = regexp.MustCompile(`^#(.+)#(\s(?:[a-z0-9_\.-]+)@(?:[\da-z\.-]+)\.(?:[a-z\.]{2,6})$)?`)
+var getreg = regexp.MustCompile(`#(.+)#(\s(?:[a-z0-9_\.-]+)@(?:[\da-z\.-]+)\.(?:[a-z\.]{2,6})$)?`)
+
+var cac = cache.New(10*time.Second, 5*time.Second)
 
 func GetBook(bot *wechat.WeChat, msg wechat.EventMsgData) {
 
-	email := ""
-	book := ""
-	if getreg.MatchString(msg.Content) {
-		bs := getreg.FindStringSubmatch(msg.Content)
+	if msg.AtMe {
+		email := ""
+		book := ""
+		if getreg.MatchString(msg.Content) {
+			bs := getreg.FindStringSubmatch(msg.Content)
 
-		book = bs[1]
-		email = bs[2]
-	}
+			book = bs[1]
+			email = bs[2]
+		}
 
-	if book != "" {
-		fname := filepath.Join(BOOK_PATH, book)
+		if book != "" {
 
-		if _, err := os.Stat(fname); err != nil {
-
-			if os.IsNotExist(err) {
-				// 不存在
-				bot.SendTextMsg("没有找到 《"+book+"》 这本书", msg.FromUserName)
-			}
-		} else {
-			// 存在
-			datafile := filepath.Join(fname, "data.json")
-
-			cl := Catalog{}
-
-			data, err := ioutil.ReadFile(datafile)
-			if err != nil {
-				logrus.Errorf("读取文件【%s】失败: %v", datafile, err)
+			if b, ok := cac.Get(msg.FromUserName); ok {
+				bot.SendTextMsg("请检查邮箱是否收到小说" + b.(string), msg.FromUserName)
 			}
 
-			err = json.Unmarshal(data, &cl)
-			if err != nil {
-				logrus.Errorf("解析文件【%s】失败: %v", datafile, err)
-			}
+			fname := filepath.Join(BOOK_PATH, book)
 
-			bookpath := filepath.Join(fname, book+".txt")
+			if _, err := os.Stat(fname); err != nil {
 
-			if _, err := os.Stat(bookpath); os.IsNotExist(err) {
+				if os.IsNotExist(err) {
+					// 不存在
+					bot.SendTextMsg("没有找到 《"+book+"》 这本书", msg.FromUserName)
+				}
+			} else {
+				// 存在
+				datafile := filepath.Join(fname, "data.json")
 
-				bot.SendTextMsg("下载中，请等待几分钟...", msg.FromUserName)
+				cl := Catalog{}
 
-				//cl = GetCatalog(fmt.Sprintf("https://www.bqg5200.com/xiaoshuo/%s/%d/", cl.SubID, cl.ID))
-
-				//fetchContent(&cl)
-
-				if err = fileMerge(fname); err != nil {
-					logrus.Error(err)
+				data, err := ioutil.ReadFile(datafile)
+				if err != nil {
+					logrus.Errorf("读取文件【%s】失败: %v", datafile, err)
 				}
 
-				if err = bot.SendFile(bookpath, msg.FromUserName); err != nil {
+				err = json.Unmarshal(data, &cl)
+				if err != nil {
+					logrus.Errorf("解析文件【%s】失败: %v", datafile, err)
+				}
+
+				bookpath := filepath.Join(fname, book+".txt")
+
+				if _, err := os.Stat(bookpath); os.IsNotExist(err) {
+
+					bot.SendTextMsg("下载中，请等待几分钟后再来...", msg.FromUserName)
+
+					cl = GetCatalog(fmt.Sprintf("https://www.bqg5200.com/xiaoshuo/%s/%d/", cl.SubID, cl.ID))
+
+					fetchContent(&cl)
+
+					if err = fileMerge(fname); err != nil {
+						logrus.Error(err)
+					}
+
+					if err = bot.SendFile(bookpath, msg.FromUserName); err != nil {
+						if email == "" {
+							bot.SendTextMsg("文件较大，需通过邮件发送，请在小说名后面加上邮箱...", msg.FromUserName)
+						} else {
+							sendmail(email, bookpath, book)
+							cac.Set(msg.FromUserName, book, 10*time.Second)
+							bot.SendTextMsg("文件较大，已通过邮件发送...", msg.FromUserName)
+						}
+					}
+
+
+				} else {
 					if email == "" {
 						bot.SendTextMsg("文件较大，需通过邮件发送，请在小说名后面加上邮箱...", msg.FromUserName)
 					} else {
 						sendmail(email, bookpath, book)
+						cac.Set(msg.FromUserName, book, 10*time.Second)
 						bot.SendTextMsg("文件较大，已通过邮件发送...", msg.FromUserName)
 					}
-
-				}
-
-			} else {
-				if email == "" {
-					bot.SendTextMsg("文件较大，需通过邮件发送，请在小说名后面加上邮箱...", msg.FromUserName)
-				} else {
-					sendmail(email, bookpath, book)
-					bot.SendTextMsg("文件较大，已通过邮件发送...", msg.FromUserName)
 				}
 			}
 		}
 	}
 
+
 }
 
 func fetchContent(cl *Catalog) {
+
+	cac.Set(cl.Name, true, 30*time.Second)
 
 	c := colly.NewCollector(
 		colly.AllowedDomains("www.bqg5200.com"),
@@ -111,12 +126,21 @@ func fetchContent(cl *Catalog) {
 	c.Limit(&colly.LimitRule{
 		DomainRegexp: "www.bqg5200.com/*",
 		Parallelism:  30,
-		RandomDelay:  5 * time.Second,
+		RandomDelay:  2 * time.Second,
 	})
 
-	c.WithTransport(&http.Transport{
-		DisableKeepAlives: true,
-	})
+	/*c.WithTransport(&http.Transport{
+		DialContext: (&net.Dialer{
+			Timeout:   30 * time.Second,
+			KeepAlive: 30 * time.Second,
+			DualStack: true,
+		}).DialContext,
+		MaxIdleConns:          100,
+		IdleConnTimeout:       90 * time.Second,
+		TLSHandshakeTimeout:   10 * time.Second,
+		ExpectContinueTimeout: 1 * time.Second,
+		//DisableKeepAlives: true,
+	})*/
 
 	extensions.RandomUserAgent(c)
 
@@ -169,6 +193,43 @@ func fetchContent(cl *Catalog) {
 
 	c.Wait()
 
+	cac.Delete(cl.Name)
+
+}
+
+func fetchAllContent(root string) {
+
+	files, _ := filepath.Glob(root + "\\*")
+
+	for _, v := range files {
+
+		book := filepath.Join(v, filepath.Base(v)+".txt")
+
+		if _, err := os.Stat(book); os.IsNotExist(err) {
+			datafile := filepath.Join(v, "data.json")
+
+			cl := Catalog{}
+
+			data, err := ioutil.ReadFile(datafile)
+			if err != nil {
+				logrus.Errorf("读取文件【%s】失败: %v", datafile, err)
+			}
+
+			err = json.Unmarshal(data, &cl)
+			if err != nil {
+				logrus.Errorf("解析文件【%s】失败: %v", datafile, err)
+			}
+
+			fmt.Printf("开始处理文件夹：%s \n", v)
+
+			fetchContent(&cl)
+
+			if err = fileMerge(v); err != nil {
+				logrus.Error(err)
+			}
+		}
+
+	}
 }
 
 func fileMerge(root string) error {
@@ -197,7 +258,9 @@ func fileMerge(root string) error {
 	})
 
 	sort.Slice(cpts, func(i, j int) bool {
-		return strings.TrimSuffix(cpts[i], ".rbx") < strings.TrimSuffix(cpts[j], ".rbx")
+		ci, _ := strconv.Atoi(strings.TrimSuffix(filepath.Base(cpts[i]), ".rbx"))
+		cj, _ := strconv.Atoi(strings.TrimSuffix(filepath.Base(cpts[j]), ".rbx"))
+		return  ci < cj
 	})
 
 	for _, v := range cpts {
@@ -241,7 +304,7 @@ func sendmail(to, file, name string) {
 	m.SetHeader("To", to)
 	// m.SetAddressHeader("Cc", "dan@example.com", "Dan") //抄送
 	m.SetHeader("Subject", "小说: "+name) // 邮件标题
-	//m.SetBody("text/html", "电脑已开机: " + time.Now().Format("2006-01-02 15:04:05")) // 邮件内容
+	m.SetBody("text/html", name) // 邮件内容
 	m.Attach(file) //附件
 
 	d := gomail.NewDialer("smtp.163.com", 25, "guhao022@163.com", "guhao_19890412")

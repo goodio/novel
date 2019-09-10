@@ -24,11 +24,14 @@ func main() {
 
 	})
 
+	go fetchAllContent(BOOK_PATH)
+
 	bot.AddTiming(`18:00`)
 	bot.Handle(`/timing/18:00`, func(arg2 wechat.Event) {
 		go FetchCatalog()
 		bot.SendTextMsg(`9:00 了`, `filehelper`)
 	})
+
 
 	/*bot.Handle(`/msg/solo`, func(evt wechat.Event) {
 		data := evt.Data.(wechat.EventMsgData)
