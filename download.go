@@ -224,7 +224,7 @@ func fetchContent(cl *Catalog) {
 
 }
 
-func fetchAllContent(root string) {
+/*func fetchAllContent(root string) {
 
 	var reg_bqg5200 = regexp.MustCompile(`https:\/\/www.bqg5200.com\/xiaoshuo\/\d+\/\d+\/(\d+).html`)
 
@@ -259,7 +259,7 @@ func fetchAllContent(root string) {
 		}
 
 	}
-}
+}*/
 
 func fileMerge(root string) error {
 	name := filepath.Base(root)
